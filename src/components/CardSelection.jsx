@@ -5,16 +5,31 @@ import { CARDS } from '../game/constants';
 import { RefreshCw } from 'lucide-react';
 
 export default function CardSelection({ onSelect }) {
-    const { scrap, rerollCost, increaseRerollCost, setStats, ownedWagons } = useGameStore();
+    const { scrap, rerollCost, increaseRerollCost, setStats, ownedWagons, wagonCount, maxWagonCount } = useGameStore();
     const [cards, setCards] = useState([]);
 
     const generateCards = () => {
         const newCards = [];
+
+        // Filter cards if train is full
+        let poolSource = CARDS;
+        if (wagonCount >= maxWagonCount) {
+            poolSource = CARDS.filter(c =>
+                c.type === 'stat' ||
+                (c.type === 'wagon' && ownedWagons.some(w => w.id === c.id))
+            );
+        }
+
         for (let i = 0; i < 3; i++) {
             const r = Math.random();
-            let pool = CARDS.filter(c => c.rarity === 'common');
-            if (r > 0.6) pool = CARDS.filter(c => c.rarity === 'rare');
-            if (r > 0.9) pool = CARDS.filter(c => c.rarity === 'legendary');
+            let pool = poolSource.filter(c => c.rarity === 'common');
+            if (r > 0.6) pool = poolSource.filter(c => c.rarity === 'rare');
+            if (r > 0.9) pool = poolSource.filter(c => c.rarity === 'legendary');
+
+            // Fallback if pool is empty (e.g. no legendary upgrades available)
+            if (pool.length === 0) pool = poolSource.filter(c => c.rarity === 'common');
+            if (pool.length === 0) pool = poolSource; // Last resort
+
             const card = pool[Math.floor(Math.random() * pool.length)];
             newCards.push(card);
         }
@@ -78,11 +93,12 @@ export default function CardSelection({ onSelect }) {
 
                                 {/* Level Up Indicator */}
                                 {(() => {
-                                    const owned = ownedWagons && ownedWagons.find(w => w.id === card.id);
+                                    const owned = ownedWagons && (ownedWagons.find(w => w.id === card.id && w.level < w.maxLevel) || ownedWagons.find(w => w.id === card.id));
                                     if (owned) {
+                                        const isMax = owned.level >= owned.maxLevel;
                                         return (
-                                            <div className="absolute top-0 left-0 px-3 py-1 bg-green-500 text-black text-[10px] font-bold uppercase rounded-br-lg rounded-tl-lg">
-                                                LEVEL UP! ({owned.level} ➜ {Math.min(owned.maxLevel, owned.level + 1)})
+                                            <div className={`absolute top-0 left-0 px-3 py-1 text-[10px] font-bold uppercase rounded-br-lg rounded-tl-lg ${isMax ? 'bg-red-500 text-white' : 'bg-green-500 text-black'}`}>
+                                                {isMax ? 'MAX LEVEL' : `LEVEL ${owned.level} ➜ ${owned.level + 1}`}
                                             </div>
                                         );
                                     }

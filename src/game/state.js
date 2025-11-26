@@ -17,6 +17,8 @@ export const useGameStore = create((set) => ({
     waveTimer: 0,
     waveDuration: 1800,
     gameState: 'PLAY', // PLAY, LEVEL_UP, GLOSSARY, GAMEOVER
+    cameraMode: 'follow',
+    godMode: false,
 
     // Actions called by Game Loop
     setStats: (stats) => set((state) => ({ ...state, ...stats })),

@@ -20,11 +20,13 @@ export const CARDS = [
     { id: 'acid', type: 'wagon', title: 'ACID TANK', desc: 'Corrosive spray, melts enemies over time.', rarity: 'common', maxLevel: 5, weight: 10 },
     { id: 'gravity', type: 'wagon', title: 'GRAVITY WELL', desc: 'Pulls enemies in.', rarity: 'rare', maxLevel: 5, weight: 15 },
     { id: 'thumper', type: 'wagon', title: 'THUMPER', desc: 'Shockwave pushes enemies back.', rarity: 'common', maxLevel: 5, weight: 20 },
+    { id: 'missile', type: 'wagon', title: 'MISSILE CAR', desc: 'Fires homing rockets.', rarity: 'rare', maxLevel: 5, weight: 10 },
+    { id: 'cluster', type: 'wagon', title: 'CLUSTER LAUNCHER', desc: 'Rocket splits on impact.', rarity: 'legendary', maxLevel: 5, weight: 5 },
 
     { id: 'repair', type: 'stat', title: 'FULL REPAIR', desc: 'Restore 100% Hull.', rarity: 'common' },
     { id: 'dmg', type: 'stat', title: 'TURRET MK2', desc: '+50% Locomotive Damage.', rarity: 'rare' },
     { id: 'speed', type: 'stat', title: 'TURBO PISTON', desc: '+25% Max Speed.', rarity: 'rare' },
-    { id: 'omni', type: 'wagon', title: 'OMNI-BATTERY', desc: 'Legendary rapid fire array.', rarity: 'legendary' },
+    { id: 'omni', type: 'wagon', title: 'OMNI-BATTERY', desc: 'Legendary rapid fire array.', rarity: 'legendary', weight: 10 },
     { id: 'ram', type: 'stat', title: 'RAM PLATING', desc: 'Ram damage up, self dmg down.', rarity: 'legendary' },
     { id: 'magnet', type: 'stat', title: 'MAG-CRANE', desc: '+100% Collection Range.', rarity: 'rare' }
 ];

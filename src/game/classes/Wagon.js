@@ -1,8 +1,10 @@
 import { getSplinePoint } from '../utils/math';
 import { audioManager } from '../core/Audio';
+import { Container, Graphics, Sprite } from 'pixi.js';
 
 export class Wagon {
-    constructor(type, id) {
+    constructor(game, type, id) {
+        this.game = game;
         this.type = type;
         this.id = id;
         this.level = 1;
@@ -26,6 +28,14 @@ export class Wagon {
         };
 
         this.initStats();
+
+        // PixiJS Setup
+        this.container = new Container();
+
+        // Initial Visuals
+        this.updateVisuals();
+
+        this.game.layers.ground.addChild(this.container);
     }
 
     initStats() {
@@ -39,6 +49,8 @@ export class Wagon {
         if (this.type === 'acid') { this.stats.range = 0.8; this.stats.fireRate = 3.0; this.stats.turnRate = 0.1; }
         if (this.type === 'gravity') { this.stats.range = 1.5; this.stats.damage = 0.5; this.stats.turnRate = 0.05; this.stats.fireRate = 0.2; }
         if (this.type === 'thumper') { this.stats.range = 1.0; this.stats.damage = 1.0; this.stats.fireRate = 0.3; }
+        if (this.type === 'missile') { this.stats.range = 1.8; this.stats.damage = 2.5; this.stats.fireRate = 0.4; this.stats.turnRate = 0.1; }
+        if (this.type === 'cluster') { this.stats.range = 2.2; this.stats.damage = 4.0; this.stats.fireRate = 0.15; this.stats.turnRate = 0.05; }
     }
 
     upgrade() {
@@ -67,14 +79,17 @@ export class Wagon {
         if (this.type === 'acid') { this.stats.range *= 1.1; }
         if (this.type === 'gravity') { this.stats.range *= 1.1; }
         if (this.type === 'thumper') { this.stats.damage *= 1.2; }
+        if (this.type === 'missile') { this.stats.damage *= 1.15; this.stats.range *= 1.1; }
+        if (this.type === 'cluster') { this.stats.damage *= 1.2; }
 
         audioManager.play('build');
+        this.updateVisuals(); // Redraw level indicators
     }
 
     update(game, idx) {
         // Track following logic
         const player = game.player;
-        const targetDist = player.totalDist - (30 * (idx + 1));
+        const targetDist = player.totalDist - (45 * (idx + 1));
         let foundT = player.trackPos;
 
         for (let i = player.history.length - 1; i >= 0; i--) {
@@ -99,11 +114,16 @@ export class Wagon {
         this.x = p1.x; this.y = p1.y;
         this.angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
 
+        // Update Container
+        this.container.x = this.x;
+        this.container.y = this.y;
+        this.container.rotation = this.angle;
+
         // Passive Effects
         if (this.type === 'miner' && game.frameCount % Math.max(60, 180 - (this.level * 20)) === 0) game.spawnScrap(this.x, this.y, 5 * this.level);
         if (this.type === 'medic' && game.frameCount % Math.max(30, 120 / this.stats.fireRate) === 0) game.healPlayer(1 * this.level);
         if (this.type === 'stasis') {
-            const r = 150 * this.stats.range;
+            const r = 225 * this.stats.range;
             game.enemies.forEach(e => {
                 if (Math.hypot(e.x - this.x, e.y - this.y) < r) {
                     e.speedMult = 0.5 - (this.level * 0.05);
@@ -132,6 +152,34 @@ export class Wagon {
             else if (this.type === 'acid') this.fireAcid(game, buff);
             else if (this.type === 'gravity') this.fireGravity(game, buff);
             else if (this.type === 'thumper') this.fireThumper(game, buff);
+            else if (this.type === 'missile') this.fireMissile(game, buff);
+            else if (this.type === 'cluster') this.fireCluster(game, buff);
+        }
+
+        // Update Turret Rotation
+        if (this.turretSprite) {
+            this.turretSprite.rotation = this.turretAngle - this.angle;
+        }
+
+        // Update Cooldown Bar
+        this.updateCooldownBar();
+    }
+
+    updateCooldownBar() {
+        if (!this.cooldownBar) {
+            this.cooldownBar = new Graphics();
+            this.container.addChild(this.cooldownBar);
+        }
+
+        this.cooldownBar.clear();
+        if (!['shield', 'miner', 'spike', 'drone', 'fabricator', 'stasis', 'medic', 'thumper'].includes(this.type)) {
+            const pct = 1 - (this.cooldown / this.maxCooldown);
+            if (pct < 1) {
+                this.cooldownBar.rect(-12, -22, 24, 4);
+                this.cooldownBar.fill(0x000000);
+                this.cooldownBar.rect(-12, -22, 24 * pct, 4);
+                this.cooldownBar.fill(0x4ade80);
+            }
         }
     }
 
@@ -157,60 +205,67 @@ export class Wagon {
     }
 
     fireStandard(game, buff) {
-        const range = 250 * this.stats.range;
+        const range = 375 * this.stats.range;
         const t = game.getNearestEnemy(this.x, this.y, range);
         if (this.aim(t)) {
             this.maxCooldown = 35 / this.stats.fireRate; this.cooldown = this.maxCooldown;
             game.fireProjectile(this.x, this.y, t, 8, '#60a5fa', game.player.autoDmg * this.stats.damage * buff, false, false, 2); // Small Knockback
-            audioManager.play('shoot');
+            audioManager.play('shoot', (this.x - game.canvas.width / 2) / (game.canvas.width / 2));
         }
     }
+
     fireSniper(game, buff) {
-        const range = 500 * this.stats.range;
-        const t = game.getNearestEnemy(this.x, this.y, range);
+        const range = 750 * this.stats.range;
+        const t = game.getStrongestEnemy(this.x, this.y, range);
         if (this.aim(t)) {
             this.maxCooldown = 90 / this.stats.fireRate; this.cooldown = this.maxCooldown;
             game.fireProjectile(this.x, this.y, t, 20, '#facc15', game.player.autoDmg * 5 * this.stats.damage * buff, false, false, 10); // High Knockback
-            audioManager.play('shoot');
+            audioManager.play('sniper', (this.x - game.canvas.width / 2) / (game.canvas.width / 2));
         }
     }
+
     fireFlame(game, buff) {
-        const range = 180 * this.stats.range;
+        const range = 270 * this.stats.range;
         const t = game.getNearestEnemy(this.x, this.y, range);
         if (this.aim(t)) {
             this.maxCooldown = 5 / this.stats.fireRate; this.cooldown = this.maxCooldown;
             game.fireProjectile(this.x, this.y, t, 6, '#f97316', game.player.autoDmg * 0.4 * this.stats.damage * buff);
+            if (game.frameCount % 5 === 0) audioManager.play('flame', (this.x - game.canvas.width / 2) / (game.canvas.width / 2));
         }
     }
+
     fireTesla(game, buff) {
-        const range = 150 * this.stats.range;
-        const t = game.getNearestEnemy(this.x, this.y, range);
+        const range = 225 * this.stats.range;
+        const t = game.getClusteredEnemy(this.x, this.y, range);
         if (t) {
             this.maxCooldown = 45 / this.stats.fireRate; this.cooldown = this.maxCooldown;
             t.hp -= game.player.autoDmg * 1.5 * this.stats.damage * buff;
             game.createLightning(this.x, this.y, t.x + 16, t.y + 16);
-            audioManager.play('zap');
+            audioManager.play('tesla', (this.x - game.canvas.width / 2) / (game.canvas.width / 2));
             game.spawnFloater(t.x, t.y - 10, Math.floor(game.player.autoDmg * 1.5 * this.stats.damage * buff), "#a78bfa", 10);
         }
     }
+
     fireMortar(game, buff) {
-        const range = 400 * this.stats.range;
-        const t = game.getNearestEnemy(this.x, this.y, range);
+        const range = 450 * this.stats.range;
+        const t = game.getClusteredEnemy(this.x, this.y, range);
         if (this.aim(t)) {
             this.maxCooldown = 120 / this.stats.fireRate; this.cooldown = this.maxCooldown;
             game.fireProjectile(this.x, this.y, t, 5, '#ef4444', game.player.autoDmg * 4 * this.stats.damage * buff, true);
-            audioManager.play('mortar');
+            audioManager.play('mortar', (this.x - game.canvas.width / 2) / (game.canvas.width / 2));
         }
     }
+
     fireCryo(game, buff) {
-        const range = 250 * this.stats.range;
+        const range = 375 * this.stats.range;
         const t = game.getNearestEnemy(this.x, this.y, range);
         if (this.aim(t)) {
             this.maxCooldown = 25 / this.stats.fireRate; this.cooldown = this.maxCooldown;
             game.fireProjectile(this.x, this.y, t, 7, '#06b6d4', game.player.autoDmg * 0.5 * this.stats.damage * buff, false, true);
-            audioManager.play('shoot');
+            audioManager.play('cryo', (this.x - game.canvas.width / 2) / (game.canvas.width / 2));
         }
     }
+
     spawnDrone(game) {
         if (game.drones.length < 3 + this.level) {
             this.maxCooldown = 300 / this.stats.fireRate; this.cooldown = this.maxCooldown;
@@ -219,92 +274,88 @@ export class Wagon {
     }
 
     fireRailgun(game, buff) {
-        const range = 600 * this.stats.range;
-        const t = game.getNearestEnemy(this.x, this.y, range);
+        const range = 900 * this.stats.range;
+        const t = game.getStrongestEnemy(this.x, this.y, range);
         if (this.aim(t)) {
             this.maxCooldown = 120 / this.stats.fireRate; this.cooldown = this.maxCooldown;
             game.fireProjectile(this.x, this.y, t, 25, '#fff', game.player.autoDmg * 4 * this.stats.damage * buff, false, false, 25); // Massive Knockback
-            audioManager.play('shoot');
+            audioManager.play('railgun', (this.x - game.canvas.width / 2) / (game.canvas.width / 2));
         }
     }
 
     fireAcid(game, buff) {
-        const range = 200 * this.stats.range;
+        const range = 300 * this.stats.range;
         const t = game.getNearestEnemy(this.x, this.y, range);
         if (this.aim(t)) {
             this.maxCooldown = 10 / this.stats.fireRate; this.cooldown = this.maxCooldown;
             game.fireProjectile(this.x, this.y, t, 7, '#84cc16', game.player.autoDmg * 0.2 * this.stats.damage * buff, false, false, 0, true); // Acid
+            audioManager.play('acid', (this.x - game.canvas.width / 2) / (game.canvas.width / 2));
         }
     }
 
     fireGravity(game, buff) {
-        const range = 300 * this.stats.range;
-        const t = game.getNearestEnemy(this.x, this.y, range);
+        const range = 450 * this.stats.range;
+        const t = game.getClusteredEnemy(this.x, this.y, range);
         if (this.aim(t)) {
             this.maxCooldown = 120 / this.stats.fireRate; this.cooldown = this.maxCooldown;
             game.fireProjectile(this.x, this.y, t, 10, '#7c3aed', game.player.autoDmg * 1.0 * this.stats.damage * buff, false, false, 0, false, true); // Gravity
-            audioManager.play('shoot');
+            audioManager.play('gravity', (this.x - game.canvas.width / 2) / (game.canvas.width / 2));
         }
     }
 
     fireThumper(game, buff) {
         this.maxCooldown = 180 / this.stats.fireRate; this.cooldown = this.maxCooldown;
-        game.createShockwave(this.x, this.y, 150 * this.stats.range, 15);
-        audioManager.play('explode');
+        game.createShockwave(this.x, this.y, 225 * this.stats.range, 15);
+        audioManager.play('thumper', (this.x - game.canvas.width / 2) / (game.canvas.width / 2));
     }
 
-    draw(ctx) {
-        ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
-
-        // Base
-        ctx.fillStyle = '#334155'; ctx.fillRect(-18, -4, 18, 8);
-
-        // Level Indicators
-        for (let i = 0; i < this.level; i++) {
-            ctx.fillStyle = '#fbbf24';
-            ctx.beginPath(); ctx.arc(-14 + (i * 4), -6, 1.5, 0, Math.PI * 2); ctx.fill();
+    fireMissile(game, buff) {
+        const range = 600 * this.stats.range;
+        const t = game.getNearestEnemy(this.x, this.y, range);
+        if (this.aim(t)) {
+            this.maxCooldown = 60 / this.stats.fireRate; this.cooldown = this.maxCooldown;
+            // Fire homing missile
+            game.fireProjectile(this.x, this.y, t, 12, 'missile', game.player.autoDmg * 2.5 * this.stats.damage * buff, true, false, 5, false, false, true);
+            audioManager.play('shoot', (this.x - game.canvas.width / 2) / (game.canvas.width / 2)); // Use shoot sound for now
         }
+    }
 
-        ctx.shadowBlur = 10;
+    fireCluster(game, buff) {
+        const range = 800 * this.stats.range;
+        const t = game.getStrongestEnemy(this.x, this.y, range);
+        if (this.aim(t)) {
+            this.maxCooldown = 180 / this.stats.fireRate; this.cooldown = this.maxCooldown;
+            // Fire cluster rocket (isMissile=true for homing, isCluster=true)
+            game.fireProjectile(this.x, this.y, t, 10, 'cluster', game.player.autoDmg * 4.0 * this.stats.damage * buff, true, false, 10, false, false, true, true);
+            audioManager.play('mortar', (this.x - game.canvas.width / 2) / (game.canvas.width / 2));
+        }
+    }
 
-        // Turret Rotation (if applicable)
-        const hasTurret = ['gunner', 'sniper', 'flame', 'mortar', 'cryo', 'railgun', 'acid', 'gravity'].includes(this.type);
+    updateVisuals() {
+        // Clear existing sprites if any
+        if (this.chassisSprite) this.chassisSprite.destroy();
+        if (this.turretSprite) this.turretSprite.destroy();
+
+        // Chassis
+        const chassisTexture = this.game.textureGen.generateWagonChassisTexture(this.type, this.level, '#334155');
+        this.chassisSprite = new Sprite(chassisTexture);
+        this.chassisSprite.anchor.set(0.5);
+        this.container.addChildAt(this.chassisSprite, 0);
+
+        // Turret (if applicable)
+        const hasTurret = ['gunner', 'sniper', 'flame', 'mortar', 'cryo', 'railgun', 'acid', 'gravity', 'shield', 'tesla', 'drone', 'spike', 'fabricator', 'stasis', 'medic', 'thumper', 'missile', 'cluster'].includes(this.type);
 
         if (hasTurret) {
-            ctx.save();
-            ctx.rotate(this.turretAngle - this.angle); // Relative rotation
+            const turretTexture = this.game.textureGen.generateWagonTurretTexture(this.type, '#ffffff');
+            this.turretSprite = new Sprite(turretTexture);
+            this.turretSprite.anchor.set(0.5);
+            this.container.addChildAt(this.turretSprite, 1);
         }
+    }
 
-        if (this.type === 'gunner') { ctx.fillStyle = '#475569'; ctx.shadowColor = '#000'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#3b82f6'; ctx.fillRect(0, -4, 18, 8); }
-        else if (this.type === 'sniper') { ctx.fillStyle = '#1e293b'; ctx.shadowColor = '#000'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#facc15'; ctx.fillRect(0, -3, 28, 6); }
-        else if (this.type === 'flame') { ctx.fillStyle = '#7f1d1d'; ctx.shadowColor = 'red'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#f97316'; ctx.fillRect(0, -6, 16, 12); }
-        else if (this.type === 'mortar') { ctx.fillStyle = '#3f3f46'; ctx.shadowColor = '#000'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill(); }
-        else if (this.type === 'cryo') { ctx.fillStyle = '#164e63'; ctx.shadowColor = '#06b6d4'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#67e8f9'; ctx.fillRect(0, -4, 16, 8); }
-        else if (this.type === 'railgun') { ctx.fillStyle = '#0f172a'; ctx.shadowColor = '#fff'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#fff'; ctx.fillRect(0, -2, 32, 4); }
-        else if (this.type === 'acid') { ctx.fillStyle = '#365314'; ctx.shadowColor = '#84cc16'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#84cc16'; ctx.fillRect(0, -5, 14, 10); }
-        else if (this.type === 'gravity') { ctx.fillStyle = '#2e1065'; ctx.shadowColor = '#7c3aed'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#7c3aed'; ctx.beginPath(); ctx.arc(8, 0, 6, 0, Math.PI * 2); ctx.fill(); }
-
-        if (hasTurret) ctx.restore();
-
-        // Non-turret cars
-        if (this.type === 'shield') { ctx.fillStyle = '#0369a1'; ctx.shadowColor = '#0ea5e9'; ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.stroke(); }
-        else if (this.type === 'miner') { ctx.fillStyle = '#854d0e'; ctx.shadowColor = 'gold'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#fde047'; ctx.fillRect(-6, -6, 12, 12); }
-        else if (this.type === 'tesla') { ctx.fillStyle = '#4c1d95'; ctx.shadowColor = '#a78bfa'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#a78bfa'; ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill(); }
-        else if (this.type === 'drone') { ctx.fillStyle = '#14532d'; ctx.shadowColor = '#4ade80'; ctx.fillRect(-12, -12, 24, 24); ctx.strokeStyle = '#4ade80'; ctx.strokeRect(-8, -8, 16, 16); }
-        else if (this.type === 'spike') { ctx.fillStyle = '#7f1d1d'; ctx.shadowColor = 'red'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#991b1b'; ctx.beginPath(); ctx.moveTo(12, -12); ctx.lineTo(20, -12); ctx.lineTo(16, 0); ctx.fill(); ctx.beginPath(); ctx.moveTo(12, 12); ctx.lineTo(20, 12); ctx.lineTo(16, 0); ctx.fill(); }
-        else if (this.type === 'fabricator') { ctx.fillStyle = '#c2410c'; ctx.shadowColor = '#f97316'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#fdba74'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill(); }
-        else if (this.type === 'stasis') { ctx.fillStyle = '#312e81'; ctx.shadowColor = '#6366f1'; ctx.fillRect(-12, -12, 24, 24); ctx.strokeStyle = '#818cf8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.stroke(); }
-        else if (this.type === 'medic') { ctx.fillStyle = '#be123c'; ctx.shadowColor = '#f43f5e'; ctx.fillRect(-12, -12, 24, 24); ctx.fillStyle = '#fff'; ctx.fillRect(-4, -8, 8, 16); ctx.fillRect(-8, -4, 16, 8); }
-        else if (this.type === 'thumper') { ctx.fillStyle = '#4b5563'; ctx.shadowColor = '#9ca3af'; ctx.fillRect(-14, -14, 28, 28); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.stroke(); }
-
-        ctx.restore();
-
-        if (!['shield', 'miner', 'spike', 'drone', 'fabricator', 'stasis', 'medic', 'thumper'].includes(this.type)) {
-            const pct = 1 - (this.cooldown / this.maxCooldown);
-            if (pct < 1) {
-                ctx.fillStyle = '#000'; ctx.fillRect(this.x - 12, this.y - 22, 24, 4);
-                ctx.fillStyle = '#4ade80'; ctx.fillRect(this.x - 12, this.y - 22, 24 * pct, 4);
-            }
+    destroy() {
+        if (this.container) {
+            this.container.destroy({ children: true });
         }
     }
 }
