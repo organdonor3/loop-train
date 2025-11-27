@@ -767,21 +767,21 @@ export default class Game {
                 }
             }
 
-            // Min Distance Logic (Check neighbors)
-            const prevNode = this.trackNodes[(nodeIndex - 1 + this.trackNodes.length) % this.trackNodes.length];
-            const nextNode = this.trackNodes[(nodeIndex + 1) % this.trackNodes.length];
-
-            if (Math.hypot(nx - prevNode.x, ny - prevNode.y) < 30 || Math.hypot(nx - nextNode.x, ny - nextNode.y) < 30) {
-                // Too close to neighbors
-                return;
-            }
-
             // GHOST TRACK: Store drag position but don't update node yet
             this.mouse.dragPos = { x: nx, y: ny };
 
             // Calculate Validity for Visuals
             this.mouse.dragValid = true;
             this.mouse.dragError = null;
+
+            // Min Distance Logic (Check neighbors)
+            const prevNode = this.trackNodes[(nodeIndex - 1 + this.trackNodes.length) % this.trackNodes.length];
+            const nextNode = this.trackNodes[(nodeIndex + 1) % this.trackNodes.length];
+
+            if (Math.hypot(nx - prevNode.x, ny - prevNode.y) < 50 || Math.hypot(nx - nextNode.x, ny - nextNode.y) < 50) {
+                this.mouse.dragValid = false;
+                this.mouse.dragError = "TOO CLOSE";
+            }
 
             // 1. Check Sharpness
             if (this.checkSharpness(nodeIndex, nx, ny)) {
@@ -819,11 +819,9 @@ export default class Game {
             this.drawTrack();
         }
         else if (this.mouse.down && hoverNode !== -1 && this.mouse.dragging === null) {
-            // Prevent dragging fixed nodes OR nodes under the train
+            // Prevent dragging fixed nodes
             if (this.trackNodes[hoverNode].fixed) {
                 if (this.frameCount % 60 === 0) this.spawnFloater(this.trackNodes[hoverNode].x, this.trackNodes[hoverNode].y, "LOCKED", "#ef4444", 10);
-            } else if (this.isNodeLocked(hoverNode)) {
-                if (this.frameCount % 60 === 0) this.spawnFloater(this.trackNodes[hoverNode].x, this.trackNodes[hoverNode].y, "TRAIN ON TRACK", "#ef4444", 10);
             } else {
                 this.mouse.dragging = hoverNode;
                 this.mouse.dragStart = { x: this.trackNodes[hoverNode].x, y: this.trackNodes[hoverNode].y };
@@ -1283,23 +1281,39 @@ export default class Game {
 
     checkSharpness(nodeIndex, nx, ny) {
         const len = this.trackNodes.length;
-        const prev = this.trackNodes[(nodeIndex - 1 + len) % len];
-        const next = this.trackNodes[(nodeIndex + 1) % len];
+        if (len < 3) return false;
 
-        // Vector 1: Prev -> Node
-        const v1x = nx - prev.x;
-        const v1y = ny - prev.y;
-        // Vector 2: Node -> Next
-        const v2x = next.x - nx;
-        const v2y = next.y - ny;
+        const getNode = (i) => {
+            const wrapped = (i + len * 10) % len;
+            if (wrapped === nodeIndex) return { x: nx, y: ny };
+            return this.trackNodes[wrapped];
+        };
 
-        const angle1 = Math.atan2(v1y, v1x);
-        const angle2 = Math.atan2(v2y, v2x);
+        const isSharp = (p1, p2, p3) => {
+            const v1x = p2.x - p1.x;
+            const v1y = p2.y - p1.y;
+            const v2x = p3.x - p2.x;
+            const v2y = p3.y - p2.y;
 
-        let diff = Math.abs(angle1 - angle2);
-        if (diff > Math.PI) diff = 2 * Math.PI - diff;
+            const angle1 = Math.atan2(v1y, v1x);
+            const angle2 = Math.atan2(v2y, v2x);
 
-        return diff > (Math.PI / 2.5);
+            let diff = Math.abs(angle1 - angle2);
+            if (diff > Math.PI) diff = 2 * Math.PI - diff;
+
+            return diff > (Math.PI / 1.6);
+        };
+
+        // Check Prev Node Angle
+        if (isSharp(getNode(nodeIndex - 2), getNode(nodeIndex - 1), getNode(nodeIndex))) return true;
+
+        // Check Current Node Angle
+        if (isSharp(getNode(nodeIndex - 1), getNode(nodeIndex), getNode(nodeIndex + 1))) return true;
+
+        // Check Next Node Angle
+        if (isSharp(getNode(nodeIndex), getNode(nodeIndex + 1), getNode(nodeIndex + 2))) return true;
+
+        return false;
     }
 
     updateProjectiles() {
